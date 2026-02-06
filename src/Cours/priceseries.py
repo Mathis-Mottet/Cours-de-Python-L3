@@ -15,7 +15,7 @@ class PriceSeries:
     TRADING_DAYS_PER_YEAR = 252
     def __init__(self, values: list[float], name: str | None) -> None:
         self.name = name 
-        self.values = list(values) # copie défensive
+        self.values = list(values) # Copie défensive
  
     def __repr__(self):
         """Représentation pour les développeurs (debugging)."""
