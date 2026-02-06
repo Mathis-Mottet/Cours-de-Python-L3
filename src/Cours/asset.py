@@ -1,6 +1,6 @@
 import numpy as np
-from .priceseries import PriceSeries
-from .constant import CurrencyEnum
+from Cours.priceseries import PriceSeries
+from Cours.constant import CurrencyEnum
 
 class Asset:
     """
@@ -45,7 +45,9 @@ class Asset:
             raise ValueError("Le ticker ne peut pas être vide")
         if len(prices) == 0:
             raise ValueError("La série de prix ne peut pas être vide")
-       
+        if any(p < 0 for p in prices.values):
+            raise ValueError("La série de prix ne peut pas contenir de valeurs négatives")
+        
         self.ticker = ticker.upper()  # Normalisation en majuscules
         self.prices = prices  # Composition : Asset POSSÈDE une PriceSeries
         self.sector = sector
@@ -94,53 +96,18 @@ class Asset:
         Returns:
             Coefficient de corrélation entre -1 et 1
         """
+
         x = self.prices.get_all_log_returns()
         y = other.prices.get_all_log_returns()
 
         n = min(len(x), len(y)) # On prend le plus petit vecteur
 
         if n < 2:
-            raise ValueError("")
+            raise ValueError(
+                f"Pas assez d'observations communes: {n}. "
+                "Minimum requis: 2."
+            )
 
-        x, y = x[:n], y[:n] # On ajuste x et y pour qu'ils soient de même taille
-       
-        sum_x = 0.0
-        for val in x:
-            sum_x += val
-        mean_x = sum_x / n
-
-        sum_y = 0.0
-        for val in y:
-            sum_y += val
-        mean_y = sum_y / n
-        
-        cov_s = 0.0
-        var_x_s = 0.0
-        var_y_s = 0.0
-
-        for i in range(n):
-            cx = x[i] - mean_x
-            cy = y[i] - mean_y
-            cov_s += cx * cy
-            var_x_s += cx * cx
-            var_y_s += cy * cy
-        
-        covariance = cov_s/(n-1)
-        var_x = var_x_s / (n-1)
-        var_y = var_y_s / (n-1)
-
-        correlation = covariance / (var_x**(1/2) * var_y**(1/2))
-
-        return correlation
-    
-    def correlation_with_synthaxe(self, other: "Asset") -> float:
-        x = self.prices.get_all_log_returns()
-        y = other.prices.get_all_log_returns()
-
-        n = min(len(x), len(y)) # On prend le plus petit vecteur
-
-        if n < 2:
-            raise ValueError("")
 
         x, y = x[:n], y[:n] # On ajuste x et y pour qu'ils soient de même taille
 
@@ -153,7 +120,61 @@ class Asset:
         covariance = sum(cx_i * cy_i for cx_i, cy_i in zip(cx, cy)) / (n-1)
         var_x = sum(cx_i * cx_i for cx_i in cx) / (n-1)
         var_y = sum(cy_i * cy_i for cy_i in cy) / (n-1)
-
+        
+        if var_x == 0 or var_y == 0:
+            raise ValueError(
+                "Variance nulle détectée. "
+                "La corrélation n'est pas définie pour une série constante."
+            )
+        
         correlation = covariance / (var_x**(1/2) * var_y**(1/2))
+
+        return correlation
+    
+    
+    def correlation_with_numpy(self, other: "Asset") -> float:
+        """
+        Calcule la corrélation de Pearson des log-rendements avec un autre actif.
+        
+        Args:
+            other: Un autre Asset
+        
+        Returns:
+            Coefficient de corrélation entre -1 et 1
+        """
+        # Récupération des log-rendements
+        x = np.array(self.prices.get_all_log_returns())
+        y = np.array(other.prices.get_all_log_returns())
+        
+        # Alignement des longueurs (gestion des séries de tailles différentes)
+        n = min(len(x), len(y))
+        if n < 2:
+            raise ValueError(
+                f"Pas assez d'observations communes: {n}. "
+                "Minimum requis: 2."
+            )
+        
+        x = x[:n]
+        y = y[:n]
+        
+        # Centrage des valeurs (soustraction de la moyenne)
+        x_centered = x - np.mean(x)
+        y_centered = y - np.mean(y)
+        
+        # Covariance (numérateur)
+        covariance = np.dot(x_centered, y_centered) / (n - 1)
+        
+        # Variances pour le dénominateur
+        var_x = np.dot(x_centered, x_centered) / (n - 1)
+        var_y = np.dot(y_centered, y_centered) / (n - 1)
+        
+        # Vérification de la variance nulle
+        if var_x == 0 or var_y == 0:
+            raise ValueError(
+                "Variance nulle détectée. "
+                "La corrélation n'est pas définie pour une série constante."
+            )
+        
+        correlation = covariance / np.sqrt(var_x * var_y)
 
         return correlation

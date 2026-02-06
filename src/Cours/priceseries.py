@@ -13,9 +13,9 @@ class PriceSeries:
         (convention US equities, peut varier selon l'actif)
     """
     TRADING_DAYS_PER_YEAR = 252
-    def __init__(self, values: list[float], name: str | None) -> None:
+    def __init__(self, values: list[float] | list[int], name: str | None) -> None:
         self.name = name 
-        self.values = list(values) # Copie défensive
+        self.values = list(values) # Crée une COPIE de la liste
  
     def __repr__(self):
         """Représentation pour les développeurs (debugging)."""
@@ -30,7 +30,7 @@ class PriceSeries:
     def __len__(self):
         return len(self.values) 
    
-    def get_linear_return(self, t):
+    def get_linear_return(self, t: int) -> float:
         """
         Calcul le rendement linéaire (non-ajusté des dividendes) entre l'index t et t-1.
         Addifitif (avec un pondération) entre actifs pour une cross-section des données d'un portefeuille.
@@ -41,13 +41,15 @@ class PriceSeries:
         Returns:
             float:
         """
+
         if t < 1:
             raise ValueError(f"t doit être >= 1, reçu: {t}")
         if t >= len(self.values):
             raise IndexError(f"t={t} hors limites (max:{len(self.values)-1})")
+        
         return (self.values[t] - self.values[t-1]) / self.values[t-1]
    
-    def get_log_return(self, t):
+    def get_log_return(self, t: int) -> float:
         """
         Calcul le log-rendement entre l'index t et t-1
         Addifitif dans le temps pour un actif.
@@ -57,6 +59,12 @@ class PriceSeries:
         Returns:
             float:
         """
+
+        if t < 1:
+            raise ValueError(f"t doit être >= 1, reçu: {t}")
+        if t >= len(self.values):
+            raise IndexError(f"t={t} hors limites (max:{len(self.values)-1})")
+        
         return math.log(self.values[t]/self.values[t-1])
    
     @property
@@ -69,7 +77,7 @@ class PriceSeries:
             float:
         """
         return (self.values[-1] - self.values[0]) / self.values[0]
- 
+    
     def get_all_linear_returns(self) -> list[float]:
         """Retourne la liste de tous les rendements linéaires de la série de prix.
  
