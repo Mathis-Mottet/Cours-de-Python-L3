@@ -1,11 +1,10 @@
-# Fichier: pyvest/src/loader.py
-
-
 from pathlib import Path
 import logging
 import pickle
 from datetime import datetime
 from typing import Sequence
+import requests
+import io
 
 import pandas as pd
 import yfinance as yf
