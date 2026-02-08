@@ -9,7 +9,8 @@ import io
 import pandas as pd
 import yfinance as yf
 
-from Cours.priceseries import PriceSeries
+# CORRECTION 1: Import de PriceSeries (à adapter selon votre structure)
+from priceseries import PriceSeries
 
 class DataLoader:
     """
@@ -153,7 +154,7 @@ class DataLoader:
 
                     # Reconstruire le DataFrame avec les dates
                     prices_list = data['prices']
-                    dates_list = data.get('dates') # méthode pandas sur dataframe
+                    dates_list = data.get('dates')
                     
                     df = pd.DataFrame({price_col: prices_list})
                     
@@ -207,6 +208,38 @@ class DataLoader:
             pickle.dump(data, f)
         self.logger.debug(f"Cache sauvegardé: {cache_path}")
     
+    def _fetch_from_yfinance(
+        self,
+        ticker: str,
+        price_col: str,
+        start_date: pd.Timestamp,
+        end_date: pd.Timestamp
+    ) -> pd.DataFrame | None:
+        """
+        Fetch les données depuis Yahoo Finance.
+        
+        Returns:
+            DataFrame avec les prix ou None si échec
+        """
+        try:
+            ticker_instance = yf.Ticker(ticker)
+            df = ticker_instance.history(start=start_date, end=end_date)
+            
+            if df.empty:
+                self.logger.warning(f"Dataframe vide pour {ticker}")
+                return None
+            
+            if price_col not in df.columns:
+                self.logger.error(f"{price_col} n'est pas dans le Dataframe de {ticker}")
+                raise KeyError(f"{price_col} n'est pas dans le Dataframe de {ticker}")
+            
+            return df[[price_col]]  # Retourner DataFrame avec une seule colonne
+            
+        except Exception as e:
+            self.logger.error(f"Erreur lors du fetch de {ticker}: {e}")
+            return None
+    
+    # CORRECTION 2: Réécriture complète avec utilisation du cache
     def fetch_single_ticker(
         self, 
         ticker: str, 
@@ -215,6 +248,7 @@ class DataLoader:
     ) -> PriceSeries | None:
         """
         Récupère les données de prix d'un ticker unique avec système de cache.
+        
         Args:
             ticker: Symbole (ex: 'AAPL')
             price_col: Nom de la colonne prix (ex: 'Close', 'Open')
@@ -223,31 +257,89 @@ class DataLoader:
         Returns:
             Instance de PriceSeries ou None si échec
         """
-        # Conversion des dates en Timestamp
-
-        # Vérifier le cache
-
-            # Fetch la partie manquante
-
-            # Fusionner le cache avec les nouvelles données
-
-                # Concaténation à droite
-
-                # Ou concaténation à gauche
-
-            # Supprimer les doublons et trier par date
-
-            # Sauvegarder le cache étendu
-
-            # Retourner l'objet price series
-
-        # else:  # miss: pas de données en cache
-            # fetch toutes les données avec yfinance
-
-            # Sauvegarder dans le cache
-
-            # renvoyer PriceSeries avec la série de prix
-        pass
+        start_date = pd.Timestamp(dates[0])
+        end_date = pd.Timestamp(dates[1])
+        
+        # Étape 1: Vérifier le cache
+        cached_df, status, gap_range = self._load_from_cache(
+            ticker, price_col, start_date, end_date
+        )
+        
+        final_df = None
+        
+        # Étape 2: Traiter selon le statut du cache
+        if status == "exact":
+            self.logger.info(f"Cache HIT (exact) pour {ticker}")
+            final_df = cached_df
+            
+        elif status == "contains":
+            self.logger.info(f"Cache HIT (contains) pour {ticker}")
+            # Filtrer pour la période demandée
+            final_df = cached_df.loc[start_date:end_date]
+            
+        elif status.startswith("overlap"):
+            self.logger.info(f"Cache HIT (partial: {status}) pour {ticker}")
+            gap_start, gap_end = gap_range
+            
+            # Fetch les données manquantes
+            gap_df = self._fetch_from_yfinance(ticker, price_col, gap_start, gap_end)
+            
+            if gap_df is not None:
+                # Fusionner cache + nouvelles données
+                if status == "overlap_after":
+                    final_df = pd.concat([cached_df, gap_df]).sort_index()
+                else:  # overlap_before
+                    final_df = pd.concat([gap_df, cached_df]).sort_index()
+                
+                # Sauvegarder la période complète
+                self._save_complete_range(ticker, price_col, final_df, dates)
+            else:
+                # Si fetch échoue, utiliser ce qu'on a en cache
+                final_df = cached_df
+                
+        else:  # status == "miss"
+            self.logger.info(f"Cache MISS pour {ticker}, fetch complet")
+            final_df = self._fetch_from_yfinance(ticker, price_col, start_date, end_date)
+            
+            if final_df is not None:
+                # Sauvegarder en cache
+                cache_path = self._get_cache_path(ticker, price_col, dates)
+                prices_list = final_df[price_col].tolist()
+                dates_list = final_df.index.tolist()
+                
+                self._save_to_cache(
+                    cache_path, prices_list, dates_list, 
+                    ticker, dates[0], dates[1]
+                )
+        
+        # Étape 3: Convertir en PriceSeries
+        if final_df is None or final_df.empty:
+            self.logger.warning(f"Aucune donnée disponible pour {ticker}")
+            return None
+        
+        # CORRECTION 3: Convertir Series pandas en list et utiliser ticker comme nom
+        prices_list = final_df[price_col].tolist()
+        
+        return PriceSeries(values=prices_list, name=ticker)
+    
+    def _save_complete_range(
+        self,
+        ticker: str,
+        price_col: str,
+        df: pd.DataFrame,
+        dates: tuple[str, str]
+    ) -> None:
+        """
+        Sauvegarde une plage de données complète après fusion cache + fetch.
+        """
+        cache_path = self._get_cache_path(ticker, price_col, dates)
+        prices_list = df[price_col].tolist()
+        dates_list = df.index.tolist()
+        
+        self._save_to_cache(
+            cache_path, prices_list, dates_list,
+            ticker, dates[0], dates[1]
+        )
     
     def fetch_multiple_tickers(
         self,
@@ -268,6 +360,7 @@ class DataLoader:
                 results[ticker] = ps
         return results
     
+    # CORRECTION 4: Implémentation de clear_cache
     def clear_cache(self) -> int:
         """
         Supprime tous les fichiers du cache.
@@ -275,6 +368,24 @@ class DataLoader:
         Returns:
             Nombre de fichiers supprimés
         """
-        # Itérer sur les fichiers d'un directory tout en vérifiant le suffix
-            # supprimer
-        # Renvoyer le nombre de fichier supprimé
+        if not self.cache_dir.exists():
+            return 0
+        
+        count = 0
+        for file_path in self.cache_dir.iterdir():
+            if file_path.is_file() and file_path.suffix == '.pkl':
+                try:
+                    file_path.unlink()
+                    count += 1
+                    self.logger.debug(f"Supprimé: {file_path}")
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la suppression de {file_path}: {e}")
+        
+        self.logger.info(f"Cache nettoyé: {count} fichier(s) supprimé(s)")
+        return count
+
+if __name__ == "__main__":
+    Dataloader = DataLoader(cache_dir=".cache")
+    result=Dataloader.fetch_single_ticker("AAPL", "Close", ("2022-01-01", "2024-06-01"))
+    print(result.values)
+    pass

@@ -163,7 +163,7 @@ class DataLoader:
         return PriceSeries(values=prices, name=price_col)
 
 if __name__ == "__main__":
-    Dataloader = DataLoader()
+    Dataloader = DataLoader(cache_dir=".cache")
     result=Dataloader.fetch_single_loader("AAPL", "Close", ("2024-01-01", "2024-06-01"))
     print(result.values)
     pass
